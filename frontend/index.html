@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResumeLens AI - Resume Analyzer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-animation">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+        <div class="gradient-orb orb-3"></div>
+    </div>
+
+    <header class="header">
+        <h1 class="app-title">
+            <span class="title-icon">🔍</span>
+            ResumeLens AI
+        </h1>
+        <p class="app-subtitle">Intelligent Resume Analysis & ATS Optimization</p>
+    </header>
+
+    <main class="main-container">
+        <!-- Upload Card Section -->
+        <section class="upload-section" id="uploadSection">
+            <div class="glass-card upload-card">
+                <div class="upload-icon-wrapper">
+                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                </div>
+                <h2 class="card-title">Upload Your Resume</h2>
+                <p class="card-description">Upload your resume in PDF or text format for comprehensive analysis</p>
+                
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="resumeInput" class="file-input" accept=".pdf,.txt,.doc,.docx" hidden>
+                    <label for="resumeInput" class="upload-label">
+                        <span class="upload-text">Click to upload or drag and drop</span>
+                        <span class="upload-formats">PDF, TXT, DOC, DOCX</span>
+                    </label>
+                    <div class="file-info" id="fileInfo"></div>
+                </div>
+
+                <button class="analyze-btn" id="analyzeBtn" disabled>
+                    <span class="btn-text">Analyze Resume</span>
+                    <span class="btn-icon">→</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Scanning Section -->
+        <section class="scanning-section" id="scanningSection" style="display: none;">
+            <div class="glass-card scanning-card">
+                <div class="scanning-animation">
+                    <div class="scan-line"></div>
+                    <div class="scan-particles">
+                        <span class="particle"></span>
+                        <span class="particle"></span>
+                        <span class="particle"></span>
+                        <span class="particle"></span>
+                        <span class="particle"></span>
+                    </div>
+                </div>
+                <h2 class="scanning-title">Analyzing Resume...</h2>
+                <p class="scanning-subtitle" id="scanningStatus">Extracting content and keywords</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Results Dashboard Section -->
+        <section class="results-section" id="resultsSection" style="display: none;">
+            <div class="glass-card results-card">
+                <h2 class="results-title">Analysis Results</h2>
+                
+                <!-- ATS Score Meter -->
+                <div class="score-container">
+                    <div class="circular-meter">
+                        <svg class="meter-svg" viewBox="0 0 200 200">
+                            <circle class="meter-background" cx="100" cy="100" r="85"></circle>
+                            <circle class="meter-progress" id="meterProgress" cx="100" cy="100" r="85"></circle>
+                        </svg>
+                        <div class="meter-content">
+                            <span class="score-value" id="atsScore">0</span>
+                            <span class="score-label">ATS Score</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Skills Lists -->
+                <div class="skills-container">
+                    <div class="skills-column">
+                        <div class="skill-card found-skills">
+                            <div class="skill-header">
+                                <span class="skill-icon">✓</span>
+                                <h3 class="skill-title">Skills Found</h3>
+                            </div>
+                            <ul class="skill-list" id="foundSkillsList">
+                                <!-- Dynamically populated -->
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="skills-column">
+                        <div class="skill-card missing-skills">
+                            <div class="skill-header">
+                                <span class="skill-icon">⚠</span>
+                                <h3 class="skill-title">Missing Skills</h3>
+                            </div>
+                            <ul class="skill-list" id="missingSkillsList">
+                                <!-- Dynamically populated -->
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Suggestions Section -->
+                <div class="suggestions-container">
+                    <div class="suggestion-card">
+                        <div class="suggestion-header">
+                            <span class="suggestion-icon">💡</span>
+                            <h3 class="suggestion-title">Recommendations</h3>
+                        </div>
+                        <ul class="suggestion-list" id="suggestionsList">
+                            <!-- Dynamically populated -->
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Reset Button -->
+                <button class="reset-btn" id="resetBtn">
+                    <span>Analyze Another Resume</span>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 ResumeLens AI. Powered by advanced AI analysis.</p>
+    </footer>
+
+    <script src="animations.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
