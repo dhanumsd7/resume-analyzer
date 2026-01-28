@@ -181,13 +181,17 @@
     }
 
     try {
-      const text = await res.text();
-      console.log("[ResumeLens] Backend response (raw):", text);
-      json = text ? JSON.parse(text) : null;
+      // Production-safe JSON parsing:
+      // - Avoid manual res.text() + JSON.parse() which can be brittle with proxies/CDNs.
+      // - Use the browser's native JSON parser so we reliably handle streamed/chunked responses.
+      json = await res.json();
     } catch (e) {
-      console.error("[ResumeLens] Invalid JSON response:", e);
+      console.error("[ResumeLens] Failed to parse JSON response:", e);
       showSection("upload");
-      showError("Server returned invalid JSON. Check backend logs.");
+      // Defensive, user-friendly error. Do not crash UI/animations.
+      showError(
+        "We couldn't read the server response. Please try again. If it persists, the server may be temporarily returning an invalid response."
+      );
       return;
     }
 
