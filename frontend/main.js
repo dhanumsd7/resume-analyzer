@@ -7,7 +7,7 @@
 (function () {
   "use strict";
 
-  const API_BASE = "http://localhost:5000";
+  const API_BASE = "https://resume-analyzer-eqx3.onrender.com/";
   const ANALYZE_ENDPOINT = API_BASE + "/analyze";
 
   /** @type {HTMLInputElement | null} */
