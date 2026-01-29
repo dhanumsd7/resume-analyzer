@@ -24,6 +24,23 @@ const { analyzeResume } = require("./analyzer");
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5000;
 
+// ---------------------------------------------------------------------------
+// Global process-level guards
+// ---------------------------------------------------------------------------
+// Render free tier is memory/CPU constrained. In rare cases a bug in parsing
+// or an unexpected rejection could surface as an unhandled error. We register
+// safety handlers so the Node process keeps running and always returns JSON
+// on subsequent requests instead of crashing the whole service.
+process.on("uncaughtException", (err) => {
+  console.error("[backend] Uncaught exception:", err);
+  // Intentionally DO NOT call process.exit() so the container keeps serving.
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[backend] Unhandled rejection at:", promise, "reason:", reason);
+  // Same idea: log and keep process alive.
+});
+
 const app = express();
 
 // Allow frontend (file:// or any dev server) to call backend during development.
@@ -41,12 +58,13 @@ app.use(express.json({ limit: "2mb" }));
  *
  * Fix:
  * - Use disk storage to a temp directory (Render-safe `/tmp`).
- * - Enforce a strict 1 MB file limit.
+ * - Enforce a strict ~200 KB file limit (defensive against heavy PDFs).
  * - Support only PDF/TXT.
  * - Always delete the temp file after parsing (success or failure).
  */
 const TMP_DIR_PRIMARY = "/tmp"; // Render/Linux temp directory
 const TMP_DIR_FALLBACK = os.tmpdir(); // local dev fallback (e.g., Windows)
+const MAX_UPLOAD_BYTES = 200 * 1024; // 200 KB hard cap for free-tier safety
 
 function safeTmpDir() {
   // Prefer /tmp for Render; fallback for local dev environments without /tmp.
@@ -83,7 +101,8 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 1 * 1024 * 1024 // 1 MB
+    // Multer-level guard. We also defensively check size in the handler.
+    fileSize: MAX_UPLOAD_BYTES
   }
 });
 
@@ -101,8 +120,16 @@ async function extractTextFromUpload(file) {
   if (isPdf) {
     // Read from disk to avoid keeping multipart file in RAM.
     const buf = await fs.readFile(file.path);
-    const parsed = await pdfParse(buf);
-    return String(parsed.text || "");
+    try {
+      const parsed = await pdfParse(buf);
+      return String(parsed.text || "");
+    } catch (e) {
+      const err = new Error(
+        "Could not read PDF. Ensure it is not password-protected, corrupted, or overly complex."
+      );
+      err.statusCode = 400;
+      throw err;
+    }
   }
 
   if (isTxt) {
@@ -126,6 +153,17 @@ app.post("/analyze", upload.single("file"), async (req, res) => {
     }
 
     tmpPath = req.file.path;
+
+    // Additional application-level size guard in case the upstream limit
+    // configuration changes. This ensures we never attempt to parse heavy
+    // documents on resource-constrained infrastructure.
+    if (req.file.size > MAX_UPLOAD_BYTES) {
+      return res.status(413).json({
+        success: false,
+        message: "File too large. Please upload a resume up to 200 KB."
+      });
+    }
+
     const text = await extractTextFromUpload(req.file);
     if (!text || text.trim().length < 30) {
       return res.status(400).json({
@@ -152,7 +190,7 @@ app.post("/analyze", upload.single("file"), async (req, res) => {
     if (err && err.code === "LIMIT_FILE_SIZE") {
       return res.status(413).json({
         success: false,
-        message: "File too large. Max upload size is 1 MB."
+        message: "File too large. Please upload a resume up to 200 KB."
       });
     }
 
