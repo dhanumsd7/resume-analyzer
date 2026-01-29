@@ -7,7 +7,7 @@
 (function () {
   "use strict";
 
-  const API_BASE = "resume-backend-production-4fb6.up.railway.app";
+  const API_BASE = "https://resume-backend-production-4fb6.up.railway.app/";
   const ANALYZE_ENDPOINT = API_BASE + "/analyze";
 
   /** @type {HTMLInputElement | null} */

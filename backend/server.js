@@ -22,7 +22,7 @@ const path = require("path");
 
 const { analyzeResume } = require("./analyzer");
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 5000;
 
 // ---------------------------------------------------------------------------
 // Global process-level guards
