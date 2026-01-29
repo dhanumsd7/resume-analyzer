@@ -106,6 +106,34 @@ const upload = multer({
   }
 });
 
+// ---------------------------------------------------------------------------
+// Multer error handler middleware
+// ---------------------------------------------------------------------------
+// Multer errors (fileFilter rejections, size limits) don't go through normal
+// Express error handlers. We catch them here and return JSON responses.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        success: false,
+        message: "File too large. Please upload a resume up to 200 KB."
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: err.message || "File upload error."
+    });
+  }
+  if (err && err.statusCode === 400) {
+    // File filter rejection (unsupported type)
+    return res.status(400).json({
+      success: false,
+      message: err.message || "Unsupported file type."
+    });
+  }
+  next(err);
+});
+
 app.get("/health", (req, res) => {
   res.json({ ok: true, service: "resumelens-backend", time: new Date().toISOString() });
 });
@@ -119,11 +147,32 @@ async function extractTextFromUpload(file) {
 
   if (isPdf) {
     // Read from disk to avoid keeping multipart file in RAM.
+    // Check file size before reading to prevent memory spikes.
+    const stats = await fs.stat(file.path);
+    if (stats.size > MAX_UPLOAD_BYTES) {
+      const err = new Error("File too large. Please upload a resume up to 200 KB.");
+      err.statusCode = 413;
+      throw err;
+    }
+
     const buf = await fs.readFile(file.path);
     try {
       const parsed = await pdfParse(buf);
-      return String(parsed.text || "");
+      const text = String(parsed.text || "");
+      
+      // Defensive: reject if extracted text is suspiciously large (could indicate
+      // a problematic PDF that consumed too much memory during parsing).
+      if (text.length > 50000) {
+        const err = new Error("PDF contains too much text. Please use a simpler resume file.");
+        err.statusCode = 400;
+        throw err;
+      }
+      
+      return text;
     } catch (e) {
+      // If it's already our error, re-throw
+      if (e && e.statusCode) throw e;
+      
       const err = new Error(
         "Could not read PDF. Ensure it is not password-protected, corrupted, or overly complex."
       );
@@ -133,7 +182,24 @@ async function extractTextFromUpload(file) {
   }
 
   if (isTxt) {
-    return await fs.readFile(file.path, "utf8");
+    // Check file size before reading
+    const stats = await fs.stat(file.path);
+    if (stats.size > MAX_UPLOAD_BYTES) {
+      const err = new Error("File too large. Please upload a resume up to 200 KB.");
+      err.statusCode = 413;
+      throw err;
+    }
+    
+    const text = await fs.readFile(file.path, "utf8");
+    
+    // Defensive: reject if text is suspiciously large
+    if (text.length > 50000) {
+      const err = new Error("Text file is too large. Please use a simpler resume file.");
+      err.statusCode = 400;
+      throw err;
+    }
+    
+    return text;
   }
 
   // Should be blocked by multer fileFilter, but keep a safe guard.
@@ -144,6 +210,17 @@ async function extractTextFromUpload(file) {
 
 app.post("/analyze", upload.single("file"), async (req, res) => {
   let tmpPath = null;
+  let timeoutId = null;
+
+  // Request timeout: 15 seconds max. Prevents hanging requests that could
+  // cause Render to kill the container due to resource limits.
+  const REQUEST_TIMEOUT_MS = 15000;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error("Request timeout. Processing took too long."));
+    }, REQUEST_TIMEOUT_MS);
+  });
+
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -164,7 +241,11 @@ app.post("/analyze", upload.single("file"), async (req, res) => {
       });
     }
 
-    const text = await extractTextFromUpload(req.file);
+    // Race between actual processing and timeout. If processing completes
+    // first, we clear the timeout. If timeout fires first, we abort.
+    const textPromise = extractTextFromUpload(req.file);
+    const text = await Promise.race([textPromise, timeoutPromise]);
+
     if (!text || text.trim().length < 30) {
       return res.status(400).json({
         success: false,
@@ -172,7 +253,23 @@ app.post("/analyze", upload.single("file"), async (req, res) => {
       });
     }
 
-    const analysis = analyzeResume(text);
+    // Wrap analyzer call defensively. Even though it's deterministic, we
+    // want to catch any unexpected errors (e.g., if text is extremely long
+    // and causes memory issues).
+    let analysis;
+    try {
+      const analysisPromise = Promise.resolve(analyzeResume(text));
+      analysis = await Promise.race([analysisPromise, timeoutPromise]);
+    } catch (analyzerErr) {
+      console.error("[backend] analyzer error:", analyzerErr);
+      return res.status(500).json({
+        success: false,
+        message: "Analysis failed. The resume may be too complex or contain invalid content."
+      });
+    }
+
+    // Clear timeout since we're about to send response
+    if (timeoutId) clearTimeout(timeoutId);
 
     return res.json({
       success: true,
@@ -186,7 +283,18 @@ app.post("/analyze", upload.single("file"), async (req, res) => {
   } catch (err) {
     console.error("[backend] /analyze error:", err);
 
-    // Multer-specific errors (e.g., file too large)
+    // Clear timeout on error
+    if (timeoutId) clearTimeout(timeoutId);
+
+    // Timeout errors
+    if (err && err.message && err.message.includes("timeout")) {
+      return res.status(504).json({
+        success: false,
+        message: "Processing took too long. Please try a smaller or simpler resume file."
+      });
+    }
+
+    // Multer-specific errors (should be caught by middleware, but defensive)
     if (err && err.code === "LIMIT_FILE_SIZE") {
       return res.status(413).json({
         success: false,
@@ -209,7 +317,29 @@ app.post("/analyze", upload.single("file"), async (req, res) => {
         console.warn("[backend] temp file cleanup failed:", e && e.message ? e.message : e);
       }
     }
+    // Clear timeout in finally as well
+    if (timeoutId) clearTimeout(timeoutId);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Global Express error handler (catches any remaining unhandled errors)
+// ---------------------------------------------------------------------------
+// This is the final safety net. Any error that reaches here will be converted
+// to a JSON response so the frontend never receives invalid data.
+app.use((err, req, res, next) => {
+  console.error("[backend] Unhandled Express error:", err);
+  
+  // If response already sent, delegate to default handler
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  // Always return JSON, never crash or send raw error
+  res.status(500).json({
+    success: false,
+    message: "An unexpected error occurred. Please try again."
+  });
 });
 
 app.listen(PORT, () => {
